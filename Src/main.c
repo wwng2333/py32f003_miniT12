@@ -31,7 +31,6 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "SEGGER_RTT.h"
-#include "stdlib.h"
 
 /* Private define ------------------------------------------------------------*/
 #define NUM_CALIBRATION_POINTS (sizeof(temp_calibration_table) / sizeof(TempCalibrationPoint))
