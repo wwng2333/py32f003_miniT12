@@ -126,15 +126,15 @@ int main(void)
 {
   /* Reset of all peripherals, Initializes the Systick. */
   HAL_Init();
-  
+
   /* Configure the system clock */
   APP_SystemClockConfig(); 
-
+  
   /* Initialize peripherals */
   APP_AdcInit();
   APP_TimInit();
   APP_LedConfig();
-	
+  
   SEGGER_RTT_printf(0, "hello world!\n");
   
   /* Initialize PID controller */
@@ -163,13 +163,13 @@ int main(void)
         pid.Ki = PID_KI_CONSERVATIVE;
         pid.Kd = PID_KD_CONSERVATIVE;
     }
-		
+    
     // 3. Compute the new heater output using the PID controller
     pwm_output = PID_Compute(&pid, targetTemperature, currentTemperature);
 
     // 4. Update the heater PWM duty cycle
     __HAL_TIM_SET_COMPARE(&TimHandle, TIM_CHANNEL_2, pwm_output);
-		SEGGER_RTT_printf(0, "%d %d %d %d\n", targetTemperature, currentTemperature, pwm_output, (uint16_t)pid.Kp);
+    SEGGER_RTT_printf(0, "%d %d %d %d\n", targetTemperature, currentTemperature, pwm_output, (uint16_t)pid.Kp);
     HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, (currentTemperature >= targetTemperature));
 
 
