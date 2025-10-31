@@ -63,8 +63,7 @@
 // ------------------- PID Controller Configuration -------------------
 #define PID_SAMPLE_TIME_MS        50        /* Control loop interval in milliseconds */
 #define PID_SAMPLE_TIME_S         0.05f     /* Control loop interval in seconds */
-// Threshold for switching between PID parameter sets (in Celsius)
-#define PID_TUNING_THRESHOLD_C    20
+#define PID_TUNING_THRESHOLD_C    20        /* Threshold for switching between PID parameter sets (in Celsius) */
 
 // Conservative PID Gains (for fine control when near the setpoint)
 #define PID_KP_CONSERVATIVE  5.f
@@ -106,11 +105,13 @@ static void APP_SystemClockConfig(void);
 void APP_AdcPoll(void);
 static void APP_AdcInit(void);
 static void APP_TimInit(void);
-static void APP_LedConfig(void);
+static void APP_GpioInit(void);
+static void APP_FlashSetOptionBytes(void);
 uint16_t map(int32_t x, int32_t in_min, int32_t in_max, int32_t out_min, int32_t out_max);
 uint16_t calculateTemp(uint16_t RawTemp);
 uint32_t adc_value[4];
 uint16_t T_VCC, T_T12;
+uint8_t SW;
 
 uint16_t currentTemperature, targetTemperature, pwm_output;
 
@@ -133,12 +134,19 @@ int main(void)
   /* Initialize peripherals */
   APP_AdcInit();
   APP_TimInit();
-  APP_LedConfig();
+  APP_GpioInit();
   
   SEGGER_RTT_printf(0, "hello world!\n");
   
   /* Initialize PID controller */
   PID_Init(&pid);
+	
+	// Disable PF2 reset
+	if(READ_BIT(FLASH->OPTR, FLASH_OPTR_NRST_MODE) == OB_RESET_MODE_RESET)
+  {
+		APP_FlashSetOptionBytes();
+	}
+	
   while (1)
   {
     // 1. Read all sensor values from ADC
@@ -169,9 +177,11 @@ int main(void)
 
     // 4. Update the heater PWM duty cycle
     __HAL_TIM_SET_COMPARE(&TimHandle, TIM_CHANNEL_2, pwm_output);
+    
+    // Debug
     SEGGER_RTT_printf(0, "%d %d %d %d\n", targetTemperature, currentTemperature, pwm_output, (uint16_t)pid.Kp);
+    SW = HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_0);
     HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, (currentTemperature >= targetTemperature));
-
 
     // 5. Wait for the next control cycle to maintain a constant sample time
     HAL_Delay(PID_SAMPLE_TIME_MS);
@@ -403,22 +413,43 @@ static void APP_TimInit(void)
 }
 
 /**
-  * @brief  Initialize LED
+  * @brief  Initialize GPIO
   * @param  None
   * @retval None
   */
-static void APP_LedConfig(void)
+static void APP_GpioInit(void)
 {
   GPIO_InitTypeDef  GPIO_InitStruct = {0};
 
   __HAL_RCC_GPIOA_CLK_ENABLE();                          /* Enable GPIO clock */
+  __HAL_RCC_GPIOB_CLK_ENABLE();                          /* Enable GPIO clock */
 
   GPIO_InitStruct.Pin = GPIO_PIN_1;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;            /* Push-pull output */
   GPIO_InitStruct.Pull = GPIO_PULLUP;                    /* Pull-up */
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;          /* GPIO speed */
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);                /* Initialize GPIO */
+	
+  GPIO_InitStruct.Pin = GPIO_PIN_2;
+  GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;            /* Push-pull output */
+  HAL_GPIO_Init(GPIOF, &GPIO_InitStruct);                /* Initialize GPIO */
+}
 
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);        /* Initialize GPIO */
+static void APP_FlashSetOptionBytes(void)
+{
+  FLASH_OBProgramInitTypeDef OBInitCfg;
+
+	HAL_FLASH_Unlock();
+  HAL_FLASH_OB_Unlock();
+
+  OBInitCfg.OptionType = OPTIONBYTE_USER;
+  OBInitCfg.USERType = OB_USER_BOR_EN | OB_USER_BOR_LEV | OB_USER_IWDG_SW | OB_USER_WWDG_SW | OB_USER_NRST_MODE | OB_USER_nBOOT1;
+  OBInitCfg.USERConfig = OB_BOR_DISABLE | OB_BOR_LEVEL_3p1_3p2 | OB_IWDG_SW | OB_WWDG_SW | OB_RESET_MODE_GPIO | OB_BOOT1_SYSTEM;
+  HAL_FLASH_OBProgram(&OBInitCfg);
+
+  HAL_FLASH_Lock();
+  HAL_FLASH_OB_Lock();
+  HAL_FLASH_OB_Launch();
 }
 
 void APP_AdcPoll(void)

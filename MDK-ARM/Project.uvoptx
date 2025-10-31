@@ -173,32 +173,32 @@
         <Ww>
           <count>3</count>
           <WinNumber>1</WinNumber>
-          <ItemText>RK_NOW,0x0A</ItemText>
+          <ItemText>adc_value,0x0A</ItemText>
         </Ww>
         <Ww>
           <count>4</count>
           <WinNumber>1</WinNumber>
-          <ItemText>adc_value,0x0A</ItemText>
+          <ItemText>pid</ItemText>
         </Ww>
         <Ww>
           <count>5</count>
           <WinNumber>1</WinNumber>
-          <ItemText>pid</ItemText>
+          <ItemText>pwm_output,0x0A</ItemText>
         </Ww>
         <Ww>
           <count>6</count>
           <WinNumber>1</WinNumber>
-          <ItemText>pwm_output,0x0A</ItemText>
+          <ItemText>currentTemperature,0x0A</ItemText>
         </Ww>
         <Ww>
           <count>7</count>
           <WinNumber>1</WinNumber>
-          <ItemText>currentTemperature,0x0A</ItemText>
+          <ItemText>targetTemperature,0x0A</ItemText>
         </Ww>
         <Ww>
           <count>8</count>
           <WinNumber>1</WinNumber>
-          <ItemText>targetTemperature,0x0A</ItemText>
+          <ItemText>SW</ItemText>
         </Ww>
       </WatchWindow1>
       <MemoryWindow1>
@@ -252,6 +252,10 @@
       <pSingCmdsp></pSingCmdsp>
       <pMultCmdsp></pMultCmdsp>
       <SystemViewers>
+        <Entry>
+          <Name>System Viewer\FLASH</Name>
+          <WinId>35902</WinId>
+        </Entry>
         <Entry>
           <Name>System Viewer\GPIOB</Name>
           <WinId>35903</WinId>
@@ -979,7 +983,7 @@
 
   <Group>
     <GroupName>::CMSIS</GroupName>
-    <tvExp>0</tvExp>
+    <tvExp>1</tvExp>
     <tvExpOptDlg>0</tvExpOptDlg>
     <cbSel>0</cbSel>
     <RteFlg>1</RteFlg>
