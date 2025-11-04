@@ -75,6 +75,8 @@
 #define PID_KI_AGGRESSIVE         1.f
 #define PID_KD_AGGRESSIVE         0.2f
 
+#define SLEEP_TIMEOUT_MS  60000
+
 typedef struct {
     uint16_t adc_val;
     uint16_t temp_c;
@@ -86,6 +88,12 @@ typedef struct {
     float integral, prev_error;
     float sample_time;
 } PID_Controller;
+
+typedef enum
+{
+  IRON_STATE_WORKING = 0,
+  IRON_STATE_SLEEP
+} IronState_t;
 
 /* Private variables ---------------------------------------------------------*/
 ADC_HandleTypeDef   AdcHandle;
@@ -108,6 +116,8 @@ static void APP_TimInit(void);
 static void APP_GpioInit(void);
 static void APP_FlashSetOptionBytes(void);
 static void APP_ConfigureExti(void);
+static void APP_EnterSleepMode(void);
+static void APP_ExitSleepMode(void);
 uint16_t map(int32_t x, int32_t in_min, int32_t in_max, int32_t out_min, int32_t out_max);
 uint16_t calculateTemp(uint16_t RawTemp);
 // PID Controller Functions
@@ -116,8 +126,10 @@ uint16_t PID_Compute(PID_Controller* pid_controller, int16_t setpoint, int16_t m
 
 uint32_t adc_value[4];
 uint16_t T_VCC, T_T12;
-uint8_t SW;
+uint8_t SW = 0;
+volatile IronState_t current_state = IRON_STATE_WORKING;
 uint16_t currentTemperature, targetTemperature, pwm_output;
+uint32_t last_activity_time = 0;
 
 /**
   * @brief  Main program.
@@ -131,11 +143,13 @@ int main(void)
   /* Configure the system clock */
   APP_SystemClockConfig(); 
   
+  last_activity_time = HAL_GetTick();
+  
   /* Initialize peripherals */
   APP_AdcInit();
   APP_TimInit();
   APP_GpioInit();
-	APP_ConfigureExti();
+  APP_ConfigureExti();
   
   SEGGER_RTT_printf(0, "hello world!\n");
   
@@ -150,38 +164,52 @@ int main(void)
   
   while (1)
   {
-    // 1. Read all sensor values from ADC
-    APP_AdcPoll();
+    uint32_t current_tick = HAL_GetTick();
     
-    // 2. Process sensor values into meaningful units (temperatures in Celsius)
-    currentTemperature = calculateTemp(T_T12);
-    targetTemperature = map(adc_value[ADC_INDEX_RK], KNOB_ADC_MIN, KNOB_ADC_MAX, KNOB_TEMP_MAX, KNOB_TEMP_MIN);
-    // Calculate the absolute temperature error
-    int16_t error = targetTemperature - currentTemperature;
-    // If the temperature difference is large, use aggressive PID gains for faster heating.
-    // Otherwise, switch to conservative gains for better stability near the setpoint.
-    if (error > PID_TUNING_THRESHOLD_C)
+    if ((current_tick - last_activity_time) >= SLEEP_TIMEOUT_MS)
     {
-        pid.Kp = PID_KP_AGGRESSIVE;
-        pid.Ki = PID_KI_AGGRESSIVE;
-        pid.Kd = PID_KD_AGGRESSIVE;
+      APP_EnterSleepMode();
     }
-    else
-    {
-        pid.Kp = PID_KP_CONSERVATIVE;
-        pid.Ki = PID_KI_CONSERVATIVE;
-        pid.Kd = PID_KD_CONSERVATIVE;
-    }
-    
-    // 3. Compute the new heater output using the PID controller
-    pwm_output = PID_Compute(&pid, targetTemperature, currentTemperature);
+		
+		// 1. Read all sensor values from ADC
+		APP_AdcPoll();
+		
+		// 2. Process sensor values into meaningful units (temperatures in Celsius)
+		if (current_state == IRON_STATE_WORKING)
+		{
+			targetTemperature = map(adc_value[ADC_INDEX_RK], KNOB_ADC_MIN, KNOB_ADC_MAX, KNOB_TEMP_MAX, KNOB_TEMP_MIN);
+		}
+		else
+		{
+			targetTemperature = 30;
+		}
+		currentTemperature = calculateTemp(T_T12);
+		// Calculate the absolute temperature error
+		int16_t error = targetTemperature - currentTemperature;
+		// If the temperature difference is large, use aggressive PID gains for faster heating.
+		// Otherwise, switch to conservative gains for better stability near the setpoint.
+		if (error > PID_TUNING_THRESHOLD_C)
+		{
+				pid.Kp = PID_KP_AGGRESSIVE;
+				pid.Ki = PID_KI_AGGRESSIVE;
+				pid.Kd = PID_KD_AGGRESSIVE;
+		}
+		else
+		{
+				pid.Kp = PID_KP_CONSERVATIVE;
+				pid.Ki = PID_KI_CONSERVATIVE;
+				pid.Kd = PID_KD_CONSERVATIVE;
+		}
+		
+		// 3. Compute the new heater output using the PID controller
+		pwm_output = PID_Compute(&pid, targetTemperature, currentTemperature);
 
-    // 4. Update the heater PWM duty cycle
-    __HAL_TIM_SET_COMPARE(&TimHandle, TIM_CHANNEL_2, pwm_output);
+		// 4. Update the heater PWM duty cycle
+		__HAL_TIM_SET_COMPARE(&TimHandle, TIM_CHANNEL_2, pwm_output);
 
-    // Debug
-    SEGGER_RTT_printf(0, "%d %d %d %d\n", targetTemperature, currentTemperature, pwm_output, (uint16_t)pid.Kp);
-    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, (currentTemperature >= targetTemperature));
+		// Debug
+		SEGGER_RTT_printf(0, "%d %d %d %d\n", targetTemperature, currentTemperature, pwm_output, (uint16_t)pid.Kp);
+		HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, (currentTemperature >= targetTemperature));
 
     // 5. Wait for the next control cycle to maintain a constant sample time
     HAL_Delay(PID_SAMPLE_TIME_MS);
@@ -445,7 +473,7 @@ static void APP_ConfigureExti(void)
   /* Configure GPIO pin */
   GPIO_InitTypeDef  GPIO_InitStruct ={0};
 
-  __HAL_RCC_GPIOA_CLK_ENABLE();                  /* Enable GPIOA clock */
+  __HAL_RCC_GPIOB_CLK_ENABLE();                  /* Enable GPIOB clock */
 
   GPIO_InitStruct.Mode  = GPIO_MODE_IT_FALLING;  /* GPIO mode set to falling edge interrupt */
   GPIO_InitStruct.Pull  = GPIO_PULLUP;           /* Pull-up */
@@ -511,6 +539,59 @@ void APP_AdcPoll(void)
   /* Calculate VCC voltage */
   T_VCC = (ADC_MAX_VALUE * VREFINT_MV) / adc_value[ADC_INDEX_VREFINT];
   T_T12 = adc_value[ADC_INDEX_T12] * T_VCC / ADC_MAX_VALUE;
+}
+
+/**
+  * @brief  Enter sleep mode.
+  * @param  None
+  * @retval None
+  */
+static void APP_EnterSleepMode(void)
+{
+  if (current_state == IRON_STATE_WORKING)
+  {
+    current_state = IRON_STATE_SLEEP;
+    
+    /* TODO: 1. (Turn off the heating element, e.g., PWM stop) */
+    // Example: HAL_GPIO_WritePin(HEATER_PORT, HEATER_PIN, GPIO_PIN_RESET);
+    
+    /* TODO: 2. (Update display, e.g., show "SLEEP" or "Zzz") */
+    // Example: Display_SetText("SLEEP");  
+	}
+}
+
+/**
+  * @brief  Exit sleep mode.
+  * @param  None
+  * @retval None
+  */
+static void APP_ExitSleepMode(void)
+{
+  if (current_state == IRON_STATE_SLEEP)
+  {
+    current_state = IRON_STATE_WORKING;
+    
+    /* TODO: 1. (Restore the heating element state/start PWM) */
+    // Example: HAL_GPIO_WritePin(HEATER_PORT, HEATER_PIN, GPIO_PIN_SET);
+    
+    /* TODO: 2. (Restore display to normal temperature/working mode) */
+    // Example: Display_SetText("WORK");
+    
+    // printf("Exiting Sleep Mode...\r\n");
+  }
+}
+
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+  if (GPIO_Pin == GPIO_PIN_0) 
+  {
+    SW = 0;
+    last_activity_time = HAL_GetTick();
+		if (current_state == IRON_STATE_SLEEP)
+		{
+			APP_ExitSleepMode();
+		}
+  }
 }
 
 uint16_t map(int32_t x, int32_t in_min, int32_t in_max, int32_t out_min, int32_t out_max)
