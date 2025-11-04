@@ -172,52 +172,52 @@ int main(void)
       APP_EnterSleepMode();
     }
 
-		if ((current_tick - last_control_tick) >= PID_SAMPLE_TIME_MS)
-		{
-			last_control_tick = current_tick;
-			// 1. Read all sensor values from ADC
-			APP_AdcPoll();
-			
-			// 2. Process sensor values into meaningful units (temperatures in Celsius)
-			if (current_state == IRON_STATE_WORKING)
-			{
-				targetTemperature = map(adc_value[ADC_INDEX_RK], KNOB_ADC_MIN, KNOB_ADC_MAX, KNOB_TEMP_MAX, KNOB_TEMP_MIN);
-			}
-			else
-			{
-				targetTemperature = 30; // sleep target temperature
-			}
-			currentTemperature = calculateTemp(T_T12);
-			// Calculate the absolute temperature error
-			int16_t error = targetTemperature - currentTemperature;
-			// If the temperature difference is large, use aggressive PID gains for faster heating.
-			// Otherwise, switch to conservative gains for better stability near the setpoint.
-			if (error > PID_TUNING_THRESHOLD_C)
-			{
-					pid.Kp = PID_KP_AGGRESSIVE;
-					pid.Ki = PID_KI_AGGRESSIVE;
-					pid.Kd = PID_KD_AGGRESSIVE;
-			}
-			else
-			{
-					pid.Kp = PID_KP_CONSERVATIVE;
-					pid.Ki = PID_KI_CONSERVATIVE;
-					pid.Kd = PID_KD_CONSERVATIVE;
-			}
-			
-			// 3. Compute the new heater output using the PID controller
-			pwm_output = PID_Compute(&pid, targetTemperature, currentTemperature);
+    if ((current_tick - last_control_tick) >= PID_SAMPLE_TIME_MS)
+    {
+      last_control_tick = current_tick;
+      // 1. Read all sensor values from ADC
+      APP_AdcPoll();
+      
+      // 2. Process sensor values into meaningful units (temperatures in Celsius)
+      if (current_state == IRON_STATE_WORKING)
+      {
+        targetTemperature = map(adc_value[ADC_INDEX_RK], KNOB_ADC_MIN, KNOB_ADC_MAX, KNOB_TEMP_MAX, KNOB_TEMP_MIN);
+      }
+      else
+      {
+        targetTemperature = 30; // sleep target temperature
+      }
+      currentTemperature = calculateTemp(T_T12);
+      // Calculate the absolute temperature error
+      int16_t error = targetTemperature - currentTemperature;
+      // If the temperature difference is large, use aggressive PID gains for faster heating.
+      // Otherwise, switch to conservative gains for better stability near the setpoint.
+      if (error > PID_TUNING_THRESHOLD_C)
+      {
+          pid.Kp = PID_KP_AGGRESSIVE;
+          pid.Ki = PID_KI_AGGRESSIVE;
+          pid.Kd = PID_KD_AGGRESSIVE;
+      }
+      else
+      {
+          pid.Kp = PID_KP_CONSERVATIVE;
+          pid.Ki = PID_KI_CONSERVATIVE;
+          pid.Kd = PID_KD_CONSERVATIVE;
+      }
+      
+      // 3. Compute the new heater output using the PID controller
+      pwm_output = PID_Compute(&pid, targetTemperature, currentTemperature);
 
-			// 4. Update the heater PWM duty cycle
-			__HAL_TIM_SET_COMPARE(&TimHandle, TIM_CHANNEL_2, pwm_output);
+      // 4. Update the heater PWM duty cycle
+      __HAL_TIM_SET_COMPARE(&TimHandle, TIM_CHANNEL_2, pwm_output);
 
-			// Debug
-			SEGGER_RTT_printf(0, "%d %d %d %d\n", targetTemperature, currentTemperature, pwm_output, (uint16_t)pid.Kp);
-			HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, (currentTemperature >= targetTemperature));
+      // Debug
+      SEGGER_RTT_printf(0, "%d %d %d %d\n", targetTemperature, currentTemperature, pwm_output, (uint16_t)pid.Kp);
+      HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, (currentTemperature >= targetTemperature));
 
-			// 5. Wait for the next control cycle to maintain a constant sample time
-			HAL_Delay(PID_SAMPLE_TIME_MS);
-		}
+      // 5. Wait for the next control cycle to maintain a constant sample time
+      HAL_Delay(PID_SAMPLE_TIME_MS);
+    }
   }
 }
 
@@ -513,7 +513,6 @@ static void APP_FlashSetOptionBytes(void)
 void APP_AdcPoll(void)
 {
   uint32_t adc_sum[ADC_CHANNEL_COUNT] = {0};
-  uint32_t current_sample = 0;
   
   // Temporarily set PWM to 0 during sampling to reduce noise
   __HAL_TIM_SET_COMPARE(&TimHandle, TIM_CHANNEL_2, 0);
@@ -526,7 +525,7 @@ void APP_AdcPoll(void)
     HAL_ADC_Start(&AdcHandle);
     
     /* Waiting for ADC conversion */
-    for (uint8_t ch = 0; ch < 4; ch++)
+    for (uint8_t ch = 0; ch < ADC_CHANNEL_COUNT; ch++)
     {
       HAL_ADC_PollForConversion(&AdcHandle, 10000); 
       /* Get ADC value */
@@ -540,10 +539,6 @@ void APP_AdcPoll(void)
     // Calculate the average (integer division)
     adc_value[ch] = adc_sum[ch] / ADC_AVERAGE_COUNT; 
   }
-  
-  /* Calculate VCC voltage */
-  T_VCC = (ADC_MAX_VALUE * VREFINT_MV) / adc_value[ADC_INDEX_VREFINT];
-  T_T12 = adc_value[ADC_INDEX_T12] * T_VCC / ADC_MAX_VALUE;
 }
 
 /**
@@ -562,7 +557,7 @@ static void APP_EnterSleepMode(void)
     
     /* TODO: 2. (Update display, e.g., show "SLEEP" or "Zzz") */
     // Example: Display_SetText("SLEEP");  
-	}
+  }
 }
 
 /**
@@ -592,10 +587,10 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
   {
     SW = 0;
     last_activity_time = HAL_GetTick();
-		if (current_state == IRON_STATE_SLEEP)
-		{
-			APP_ExitSleepMode();
-		}
+    if (current_state == IRON_STATE_SLEEP)
+    {
+      APP_ExitSleepMode();
+    }
   }
 }
 

@@ -3,7 +3,7 @@
 <title>Static Call Graph - [.\Objects\miniT12.axf]</title></head>
 <body><HR>
 <H1>Static Call Graph for image .\Objects\miniT12.axf</H1><HR>
-<BR><P>#&#060CALLGRAPH&#062# ARM Linker, 6240002: Last Updated: Tue Nov  4 21:18:54 2025
+<BR><P>#&#060CALLGRAPH&#062# ARM Linker, 6240002: Last Updated: Tue Nov  4 21:21:33 2025
 <BR><P>
 <H3>Maximum Stack Usage =        432 bytes + Unknown(Cycles, Untraceable Function Pointers)</H3><H3>
 Call chain for Maximum Stack Depth:</H3>
@@ -258,7 +258,6 @@ Global Symbols
 <LI><a href="#[66]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;_PrintUnsigned
 <LI><a href="#[65]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;_PrintInt
 <LI><a href="#[6a]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;calculateTemp
-<LI><a href="#[33]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;APP_AdcPoll
 <LI><a href="#[3f]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_ADC_ConfigChannel
 <LI><a href="#[30]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;$Super$$main
 </UL>
@@ -310,14 +309,13 @@ Global Symbols
 </UL>
 <BR>[Address Reference Count : 1]<UL><LI> entry9a.o(.ARM.Collect$$$$0000000B)
 </UL>
-<P><STRONG><a name="[33]"></a>APP_AdcPoll</STRONG> (Thumb, 128 bytes, Stack size 40 bytes, main.o(.text.APP_AdcPoll))
+<P><STRONG><a name="[33]"></a>APP_AdcPoll</STRONG> (Thumb, 104 bytes, Stack size 40 bytes, main.o(.text.APP_AdcPoll))
 <BR><BR>[Stack]<UL><LI>Max Depth = 88<LI>Call Chain = APP_AdcPoll &rArr; HAL_ADC_Start &rArr; ADC_Enable &rArr; __aeabi_uidiv
 </UL>
 <BR>[Calls]<UL><LI><a href="#[37]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_ADC_GetValue
 <LI><a href="#[36]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_ADC_PollForConversion
 <LI><a href="#[35]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_ADC_Start
 <LI><a href="#[34]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_Delay
-<LI><a href="#[32]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;__aeabi_uidiv
 </UL>
 <BR>[Called By]<UL><LI><a href="#[30]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;$Super$$main
 </UL>
