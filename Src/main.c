@@ -125,7 +125,6 @@ void PID_Init(PID_Controller* pid_controller);
 uint16_t PID_Compute(PID_Controller* pid_controller, int16_t setpoint, int16_t measurement);
 
 uint32_t adc_value[4];
-uint16_t T_VCC, T_T12;
 uint8_t SW = 0;
 volatile IronState_t current_state = IRON_STATE_WORKING;
 uint16_t currentTemperature, targetTemperature, pwm_output;
@@ -177,7 +176,9 @@ int main(void)
       last_control_tick = current_tick;
       // 1. Read all sensor values from ADC
       APP_AdcPoll();
-      
+      uint16_t VCC_mv = (ADC_MAX_VALUE * VREFINT_MV) / adc_value[ADC_INDEX_VREFINT];
+			uint16_t T12_mv = adc_value[ADC_INDEX_T12] * VCC_mv / ADC_MAX_VALUE;
+			
       // 2. Process sensor values into meaningful units (temperatures in Celsius)
       if (current_state == IRON_STATE_WORKING)
       {
@@ -187,7 +188,7 @@ int main(void)
       {
         targetTemperature = 30; // sleep target temperature
       }
-      currentTemperature = calculateTemp(T_T12);
+      currentTemperature = calculateTemp(T12_mv);
       // Calculate the absolute temperature error
       int16_t error = targetTemperature - currentTemperature;
       // If the temperature difference is large, use aggressive PID gains for faster heating.
