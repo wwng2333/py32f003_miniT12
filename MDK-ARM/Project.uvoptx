@@ -208,7 +208,7 @@
         <Ww>
           <count>10</count>
           <WinNumber>1</WinNumber>
-          <ItemText>last_activity_time</ItemText>
+          <ItemText>last_activity_time,0x10</ItemText>
         </Ww>
       </WatchWindow1>
       <MemoryWindow1>

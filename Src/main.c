@@ -129,7 +129,8 @@ uint16_t T_VCC, T_T12;
 uint8_t SW = 0;
 volatile IronState_t current_state = IRON_STATE_WORKING;
 uint16_t currentTemperature, targetTemperature, pwm_output;
-uint32_t last_activity_time = 0;
+uint32_t last_activity_time = 0; // for sleep
+uint32_t last_control_tick = 0; //for main loop
 
 /**
   * @brief  Main program.
@@ -170,49 +171,53 @@ int main(void)
     {
       APP_EnterSleepMode();
     }
-		
-		// 1. Read all sensor values from ADC
-		APP_AdcPoll();
-		
-		// 2. Process sensor values into meaningful units (temperatures in Celsius)
-		if (current_state == IRON_STATE_WORKING)
-		{
-			targetTemperature = map(adc_value[ADC_INDEX_RK], KNOB_ADC_MIN, KNOB_ADC_MAX, KNOB_TEMP_MAX, KNOB_TEMP_MIN);
-		}
-		else
-		{
-			targetTemperature = 30;
-		}
-		currentTemperature = calculateTemp(T_T12);
-		// Calculate the absolute temperature error
-		int16_t error = targetTemperature - currentTemperature;
-		// If the temperature difference is large, use aggressive PID gains for faster heating.
-		// Otherwise, switch to conservative gains for better stability near the setpoint.
-		if (error > PID_TUNING_THRESHOLD_C)
-		{
-				pid.Kp = PID_KP_AGGRESSIVE;
-				pid.Ki = PID_KI_AGGRESSIVE;
-				pid.Kd = PID_KD_AGGRESSIVE;
-		}
-		else
-		{
-				pid.Kp = PID_KP_CONSERVATIVE;
-				pid.Ki = PID_KI_CONSERVATIVE;
-				pid.Kd = PID_KD_CONSERVATIVE;
-		}
-		
-		// 3. Compute the new heater output using the PID controller
-		pwm_output = PID_Compute(&pid, targetTemperature, currentTemperature);
 
-		// 4. Update the heater PWM duty cycle
-		__HAL_TIM_SET_COMPARE(&TimHandle, TIM_CHANNEL_2, pwm_output);
+		if ((current_tick - last_control_tick) >= PID_SAMPLE_TIME_MS)
+		{
+			last_control_tick = current_tick;
+			// 1. Read all sensor values from ADC
+			APP_AdcPoll();
+			
+			// 2. Process sensor values into meaningful units (temperatures in Celsius)
+			if (current_state == IRON_STATE_WORKING)
+			{
+				targetTemperature = map(adc_value[ADC_INDEX_RK], KNOB_ADC_MIN, KNOB_ADC_MAX, KNOB_TEMP_MAX, KNOB_TEMP_MIN);
+			}
+			else
+			{
+				targetTemperature = 30; // sleep target temperature
+			}
+			currentTemperature = calculateTemp(T_T12);
+			// Calculate the absolute temperature error
+			int16_t error = targetTemperature - currentTemperature;
+			// If the temperature difference is large, use aggressive PID gains for faster heating.
+			// Otherwise, switch to conservative gains for better stability near the setpoint.
+			if (error > PID_TUNING_THRESHOLD_C)
+			{
+					pid.Kp = PID_KP_AGGRESSIVE;
+					pid.Ki = PID_KI_AGGRESSIVE;
+					pid.Kd = PID_KD_AGGRESSIVE;
+			}
+			else
+			{
+					pid.Kp = PID_KP_CONSERVATIVE;
+					pid.Ki = PID_KI_CONSERVATIVE;
+					pid.Kd = PID_KD_CONSERVATIVE;
+			}
+			
+			// 3. Compute the new heater output using the PID controller
+			pwm_output = PID_Compute(&pid, targetTemperature, currentTemperature);
 
-		// Debug
-		SEGGER_RTT_printf(0, "%d %d %d %d\n", targetTemperature, currentTemperature, pwm_output, (uint16_t)pid.Kp);
-		HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, (currentTemperature >= targetTemperature));
+			// 4. Update the heater PWM duty cycle
+			__HAL_TIM_SET_COMPARE(&TimHandle, TIM_CHANNEL_2, pwm_output);
 
-    // 5. Wait for the next control cycle to maintain a constant sample time
-    HAL_Delay(PID_SAMPLE_TIME_MS);
+			// Debug
+			SEGGER_RTT_printf(0, "%d %d %d %d\n", targetTemperature, currentTemperature, pwm_output, (uint16_t)pid.Kp);
+			HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, (currentTemperature >= targetTemperature));
+
+			// 5. Wait for the next control cycle to maintain a constant sample time
+			HAL_Delay(PID_SAMPLE_TIME_MS);
+		}
   }
 }
 
