@@ -85,7 +85,7 @@ typedef struct {
 typedef struct {
     float Kp, Ki, Kd;
     int32_t out_min, out_max;
-    float integral, prev_error;
+    float integral, prev_measurement;
     float sample_time;
 } PID_Controller;
 
@@ -236,7 +236,7 @@ void PID_Init(PID_Controller* pid_controller)
     pid_controller->out_max = PWM_MAX_DUTY;
 
     pid_controller->integral = 0.0f;
-    pid_controller->prev_error = 0.0f;
+    pid_controller->prev_measurement = 0.0f;
     
     pid_controller->sample_time = PID_SAMPLE_TIME_S;
 }
@@ -261,7 +261,7 @@ uint16_t PID_Compute(PID_Controller* pid_controller, int16_t setpoint, int16_t m
     float i_out = pid_controller->Ki * pid_controller->integral;
 
     // Derivative term
-    float derivative = (error - pid_controller->prev_error) / pid_controller->sample_time;
+    float derivative = (pid_controller->prev_measurement - (float)measurement) / pid_controller->sample_time;
     float d_out = pid_controller->Kd * derivative;
 
     // Calculate total output
@@ -284,7 +284,7 @@ uint16_t PID_Compute(PID_Controller* pid_controller, int16_t setpoint, int16_t m
     }
 
     // Store the current error for the next iteration's derivative calculation
-    pid_controller->prev_error = error;
+    pid_controller->prev_measurement = (float)measurement;
 
     // Return the final constrained output
     return (uint16_t)output;
