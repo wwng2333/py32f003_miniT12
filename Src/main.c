@@ -572,6 +572,8 @@ static void APP_ExitSleepMode(void)
   {
     current_state = IRON_STATE_WORKING;
     
+		pid.integral = 0.0f;
+		
     /* TODO: 1. (Restore the heating element state/start PWM) */
     // Example: HAL_GPIO_WritePin(HEATER_PORT, HEATER_PIN, GPIO_PIN_SET);
     
