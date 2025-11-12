@@ -41,7 +41,7 @@
 /* Private user code ---------------------------------------------------------*/
 /* External variables --------------------------------------------------------*/
 extern uint8_t SW;
-
+extern TIM_HandleTypeDef Tim1Handle;
 /******************************************************************************/
 /*           Cortex-M0+ Processor Interruption and Exception Handlers          */ 
 /******************************************************************************/
@@ -93,6 +93,14 @@ void EXTI0_1_IRQHandler(void)
   HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_0);
 }
 
+/**
+  * @brief This function handles TIM1 Interrupt .
+  */
+void TIM1_CC_IRQHandler(void)
+{
+	SW++;
+  HAL_TIM_IRQHandler(&Tim1Handle);
+}
 
 /******************************************************************************/
 /* PY32F0xx Peripheral Interrupt Handlers                                     */

@@ -66,16 +66,17 @@
 #define PID_TUNING_THRESHOLD_C    20        /* Threshold for switching between PID parameter sets (in Celsius) */
 
 // Conservative PID Gains (for fine control when near the setpoint)
-#define PID_KP_CONSERVATIVE  5.f
-#define PID_KI_CONSERVATIVE  1.f
-#define PID_KD_CONSERVATIVE  0.2f
+#define PID_KP_CONSERVATIVE       5.f
+#define PID_KI_CONSERVATIVE       1.f
+#define PID_KD_CONSERVATIVE       0.2f
 
 // Aggressive PID Gains (for fast heating when far from the setpoint)
 #define PID_KP_AGGRESSIVE         10.0f
 #define PID_KI_AGGRESSIVE         1.f
 #define PID_KD_AGGRESSIVE         0.2f
 
-#define SLEEP_TIMEOUT_MS  60000
+#define SLEEP_TIMEOUT_MS          60000
+#define NO_TIP_ADC_MV_THRESHOLD   2500
 
 typedef struct {
     uint16_t adc_val;
@@ -92,12 +93,13 @@ typedef struct {
 typedef enum
 {
   IRON_STATE_WORKING = 0,
-  IRON_STATE_SLEEP
+  IRON_STATE_SLEEP,
+  IRON_STATE_ERROR
 } IronState_t;
 
 /* Private variables ---------------------------------------------------------*/
 ADC_HandleTypeDef   AdcHandle;
-TIM_HandleTypeDef   TimHandle;
+TIM_HandleTypeDef   Tim1Handle, Tim3Handle;
 PID_Controller      pid;
 
 const TempCalibrationPoint temp_calibration_table[] = {
@@ -123,6 +125,23 @@ uint16_t calculateTemp(uint16_t RawTemp);
 // PID Controller Functions
 void PID_Init(PID_Controller* pid_controller);
 uint16_t PID_Compute(PID_Controller* pid_controller, int16_t setpoint, int16_t measurement);
+
+static uint16_t indexWave[] = {
+    1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 4, 4, 5, 5,
+    6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 22,
+    25, 28, 32, 36, 41, 47, 53, 61, 69, 79,
+    89, 102, 116, 131, 149, 170, 193, 219,
+    250, 284, 323, 367, 417, 474, 539, 613,
+    697, 792, 901, 1024, 1024, 901, 792, 697,
+    613, 539, 474, 417, 367, 323, 284, 250,
+    219, 193, 170, 149, 131, 116, 102, 89,
+    79, 69, 61, 53, 47, 41, 36, 32, 28, 25,
+    22, 19, 17, 15, 13, 11, 10, 9, 8, 7, 6,
+    5, 5, 4, 4, 3, 3, 2, 2, 2, 2, 1, 1, 1, 1
+};
+uint16_t POINT_NUM = sizeof(indexWave)/sizeof(indexWave[0]);
+__IO uint16_t period_class = 10;
+__IO uint16_t pwm_index, period_cnt = 0;
 
 uint32_t adc_value[4];
 uint8_t SW = 0;
@@ -166,7 +185,7 @@ int main(void)
   {
     uint32_t current_tick = HAL_GetTick();
     
-    if ((current_tick - last_activity_time) >= SLEEP_TIMEOUT_MS)
+    if (current_state == IRON_STATE_WORKING && (current_tick - last_activity_time) >= SLEEP_TIMEOUT_MS)
     {
       APP_EnterSleepMode();
     }
@@ -174,50 +193,61 @@ int main(void)
     if ((current_tick - last_control_tick) >= PID_SAMPLE_TIME_MS)
     {
       last_control_tick = current_tick;
+
       // 1. Read all sensor values from ADC
       APP_AdcPoll();
       uint16_t VCC_mv = (ADC_MAX_VALUE * VREFINT_MV) / adc_value[ADC_INDEX_VREFINT];
-			uint16_t T12_mv = adc_value[ADC_INDEX_T12] * VCC_mv / ADC_MAX_VALUE;
-			
-      // 2. Process sensor values into meaningful units (temperatures in Celsius)
-      if (current_state == IRON_STATE_WORKING)
-      {
-        targetTemperature = map(adc_value[ADC_INDEX_RK], KNOB_ADC_MIN, KNOB_ADC_MAX, KNOB_TEMP_MAX, KNOB_TEMP_MIN);
-      }
-      else
-      {
-        targetTemperature = 30; // sleep target temperature
-      }
+      uint16_t T12_mv = adc_value[ADC_INDEX_T12] * VCC_mv / ADC_MAX_VALUE;
       currentTemperature = calculateTemp(T12_mv);
-      // Calculate the absolute temperature error
-      int16_t error = targetTemperature - currentTemperature;
-      // If the temperature difference is large, use aggressive PID gains for faster heating.
-      // Otherwise, switch to conservative gains for better stability near the setpoint.
-      if (error > PID_TUNING_THRESHOLD_C)
+      
+      if(T12_mv >= 3000)
       {
-          pid.Kp = PID_KP_AGGRESSIVE;
-          pid.Ki = PID_KI_AGGRESSIVE;
-          pid.Kd = PID_KD_AGGRESSIVE;
-      }
-      else
-      {
-          pid.Kp = PID_KP_CONSERVATIVE;
-          pid.Ki = PID_KI_CONSERVATIVE;
-          pid.Kd = PID_KD_CONSERVATIVE;
+        current_state = IRON_STATE_ERROR;
+        //APP_ErrorHandler();
       }
       
-      // 3. Compute the new heater output using the PID controller
-      pwm_output = PID_Compute(&pid, targetTemperature, currentTemperature);
+      // 2. Process sensor values into meaningful units (temperatures in Celsius)
+      switch(current_state)
+      {
+        case IRON_STATE_WORKING: 
+          targetTemperature = map(adc_value[ADC_INDEX_RK], KNOB_ADC_MIN, KNOB_ADC_MAX, KNOB_TEMP_MAX, KNOB_TEMP_MIN);
+          // Calculate the absolute temperature error
+          int16_t error = targetTemperature - currentTemperature;
+          // If the temperature difference is large, use aggressive PID gains for faster heating.
+          // Otherwise, switch to conservative gains for better stability near the setpoint.
+          if (error > PID_TUNING_THRESHOLD_C)
+          {
+              pid.Kp = PID_KP_AGGRESSIVE;
+              pid.Ki = PID_KI_AGGRESSIVE;
+              pid.Kd = PID_KD_AGGRESSIVE;
+          }
+          else
+          {
+              pid.Kp = PID_KP_CONSERVATIVE;
+              pid.Ki = PID_KI_CONSERVATIVE;
+              pid.Kd = PID_KD_CONSERVATIVE;
+          }
+        
+          // 3. Compute the new heater output using the PID controller
+          pwm_output = PID_Compute(&pid, targetTemperature, currentTemperature);
 
+          break; // --- END IRON_STATE_WORKING ---
+        case IRON_STATE_SLEEP: 
+          targetTemperature = 30; // sleep target temperature
+          break;// --- END IRON_STATE_SLEEP ---
+        case IRON_STATE_ERROR:
+          targetTemperature = 0;
+          pwm_output = 0;
+          break;// --- END IRON_STATE_ERROR ---
+          
+      }
+      
       // 4. Update the heater PWM duty cycle
-      __HAL_TIM_SET_COMPARE(&TimHandle, TIM_CHANNEL_2, pwm_output);
+      __HAL_TIM_SET_COMPARE(&Tim3Handle, TIM_CHANNEL_2, pwm_output);
 
       // Debug
       SEGGER_RTT_printf(0, "%d %d %d %d\n", targetTemperature, currentTemperature, pwm_output, (uint16_t)pid.Kp);
-      HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, (currentTemperature >= targetTemperature));
-
-      // 5. Wait for the next control cycle to maintain a constant sample time
-      HAL_Delay(PID_SAMPLE_TIME_MS);
+      //HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, (currentTemperature >= targetTemperature));
     }
   }
 }
@@ -412,38 +442,73 @@ static void APP_TimInit(void)
   TIM_OC_InitTypeDef sConfig = {0};
   GPIO_InitTypeDef  GPIO_InitStruct = {0};
   
+  __HAL_RCC_TIM1_CLK_ENABLE();
   __HAL_RCC_TIM3_CLK_ENABLE();
+  __HAL_RCC_GPIOA_CLK_ENABLE();                             /* Enable GPIO clock */
   __HAL_RCC_GPIOB_CLK_ENABLE();                             /* Enable GPIO clock */
+  
+  GPIO_InitStruct.Pin = GPIO_PIN_1;
+  GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;                   /* Push-pull output */
+  GPIO_InitStruct.Pull = GPIO_PULLDOWN;                     /* Pull-down */
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;             /* GPIO speed */
+  GPIO_InitStruct.Alternate = GPIO_AF13_TIM1;               /* TIM1_CH4 */
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);                   /* Initialize GPIO */
   
   GPIO_InitStruct.Pin = GPIO_PIN_5;
   GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;                   /* Push-pull output */
-  GPIO_InitStruct.Pull = GPIO_PULLDOWN;                     /* Pull-up */
+  GPIO_InitStruct.Pull = GPIO_PULLDOWN;                     /* Pull-down */
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;             /* GPIO speed */
-  GPIO_InitStruct.Alternate = GPIO_AF1_TIM3;
+  GPIO_InitStruct.Alternate = GPIO_AF1_TIM3;               
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);                   /* Initialize GPIO */
   
-  TimHandle.Instance = TIM3;                                           /* Select TIM3 */
-  TimHandle.Init.Period            = PWM_PERIOD_COUNTS - 1;            /* Auto-reload value */
-  TimHandle.Init.Prescaler         = TIMER_PRESCALER - 1;              /* Prescaler */
-  TimHandle.Init.ClockDivision     = TIM_CLOCKDIVISION_DIV1;           /* No clock division */
-  TimHandle.Init.CounterMode       = TIM_COUNTERMODE_UP;               /* Up counting */
-  TimHandle.Init.RepetitionCounter = 0;                                /* No repetition counting */
-  TimHandle.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;   /* Auto-reload register not buffered */
-  if (HAL_TIM_Base_Init(&TimHandle) != HAL_OK)                         /* Initialize TIM3 */
+  Tim3Handle.Instance = TIM3;                                           /* Select TIM3 */
+  Tim3Handle.Init.Period            = PWM_PERIOD_COUNTS - 1;            /* Auto-reload value */
+  Tim3Handle.Init.Prescaler         = TIMER_PRESCALER - 1;              /* Prescaler */
+  Tim3Handle.Init.ClockDivision     = TIM_CLOCKDIVISION_DIV1;           /* No clock division */
+  Tim3Handle.Init.CounterMode       = TIM_COUNTERMODE_UP;               /* Up counting */
+  Tim3Handle.Init.RepetitionCounter = 0;                                /* No repetition counting */
+  Tim3Handle.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;   /* Auto-reload register not buffered */
+  if (HAL_TIM_Base_Init(&Tim3Handle) != HAL_OK)                         /* Initialize TIM3 */
   {
     APP_ErrorHandler();
   }
-
   sConfig.OCMode = TIM_OCMODE_PWM1;
   sConfig.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfig.OCFastMode = TIM_OCFAST_DISABLE;
   sConfig.OCIdleState = TIM_OCIDLESTATE_RESET;
   sConfig.Pulse = 0;
-  if (HAL_TIM_OC_ConfigChannel(&TimHandle, &sConfig, TIM_CHANNEL_2) != HAL_OK)
+  if (HAL_TIM_OC_ConfigChannel(&Tim3Handle, &sConfig, TIM_CHANNEL_2) != HAL_OK)
   {
     APP_ErrorHandler();
   }
-  HAL_TIM_OC_Start(&TimHandle, TIM_CHANNEL_2);
+  HAL_TIM_OC_Start(&Tim3Handle, TIM_CHANNEL_2);
+
+  Tim1Handle.Instance = TIM1;                                           /* Select TIM1 */
+  Tim1Handle.Init.Period            = 8 - 1;                            /* Auto-reload value */
+  Tim1Handle.Init.Prescaler         = 975 - 1;                          /* Prescaler */
+  Tim1Handle.Init.ClockDivision     = TIM_CLOCKDIVISION_DIV1;           /* No clock division */
+  Tim1Handle.Init.CounterMode       = TIM_COUNTERMODE_UP;               /* Up counting */
+  Tim1Handle.Init.RepetitionCounter = 0;                                /* No repetition counting */
+  Tim1Handle.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;   /* Auto-reload register not buffered */
+  if (HAL_TIM_Base_Init(&Tim1Handle) != HAL_OK)                         /* Initialize TIM1 */
+  {
+    APP_ErrorHandler();
+  }
+  sConfig.OCMode = TIM_OCMODE_PWM1;
+  sConfig.OCPolarity = TIM_OCPOLARITY_LOW;
+  sConfig.OCFastMode = TIM_OCFAST_DISABLE;
+  sConfig.OCIdleState = TIM_OCIDLESTATE_RESET;
+  sConfig.Pulse = 0;
+  if (HAL_TIM_OC_ConfigChannel(&Tim1Handle, &sConfig, TIM_CHANNEL_4) != HAL_OK)
+  {
+    APP_ErrorHandler();
+  }
+  HAL_TIM_OC_Start_IT(&Tim1Handle, TIM_CHANNEL_4);
+  /* Enable EXTI interrupt */
+  HAL_NVIC_EnableIRQ(TIM1_CC_IRQn);
+  
+  /* Configure interrupt priority */
+  HAL_NVIC_SetPriority(TIM1_CC_IRQn, 0, 0);
 }
 
 /**
@@ -455,14 +520,14 @@ static void APP_GpioInit(void)
 {
   GPIO_InitTypeDef  GPIO_InitStruct = {0};
 
-  __HAL_RCC_GPIOA_CLK_ENABLE();                          /* Enable GPIO clock */
+  //__HAL_RCC_GPIOA_CLK_ENABLE();                          /* Enable GPIO clock */
   __HAL_RCC_GPIOB_CLK_ENABLE();                          /* Enable GPIO clock */
 
-  GPIO_InitStruct.Pin = GPIO_PIN_1;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;            /* Push-pull output */
-  GPIO_InitStruct.Pull = GPIO_PULLUP;                    /* Pull-up */
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;          /* GPIO speed */
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);                /* Initialize GPIO */
+  //GPIO_InitStruct.Pin = GPIO_PIN_1;
+  //GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;            /* Push-pull output */
+  //GPIO_InitStruct.Pull = GPIO_PULLUP;                    /* Pull-up */
+  //GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;          /* GPIO speed */
+  //HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);                /* Initialize GPIO */
   
   GPIO_InitStruct.Pin = GPIO_PIN_2;
   GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;            /* Push-pull output */
@@ -516,7 +581,7 @@ void APP_AdcPoll(void)
   uint32_t adc_sum[ADC_CHANNEL_COUNT] = {0};
   
   // Temporarily set PWM to 0 during sampling to reduce noise
-  __HAL_TIM_SET_COMPARE(&TimHandle, TIM_CHANNEL_2, 0);
+  __HAL_TIM_SET_COMPARE(&Tim3Handle, TIM_CHANNEL_2, 0);
   HAL_Delay(5);
 
   // --- Start 16x Averaging Loop ---
@@ -572,8 +637,8 @@ static void APP_ExitSleepMode(void)
   {
     current_state = IRON_STATE_WORKING;
     
-		pid.integral = 0.0f;
-		
+    pid.integral = 0.0f;
+    
     /* TODO: 1. (Restore the heating element state/start PWM) */
     // Example: HAL_GPIO_WritePin(HEATER_PORT, HEATER_PIN, GPIO_PIN_SET);
     
@@ -582,6 +647,23 @@ static void APP_ExitSleepMode(void)
     
     // printf("Exiting Sleep Mode...\r\n");
   }
+}
+
+/**
+  * @brief  Period elapsed callback in non blocking mode 
+  * @param  htim:TIM handle
+  * @retval None
+  */
+void HAL_TIM_OC_DelayElapsedCallback(TIM_HandleTypeDef *htim)
+{
+	__HAL_TIM_SET_COMPARE(&Tim1Handle, TIM_CHANNEL_4, indexWave[pwm_index]);
+	if (period_cnt > period_class) {
+		pwm_index++;
+		if ( pwm_index >=  POINT_NUM) {
+			pwm_index = 0;
+		}
+		period_cnt = 0;
+	}
 }
 
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
@@ -652,8 +734,9 @@ void APP_ErrorHandler(void)
   /* Infinite loop */
   while (1)
   {
-    HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_1);
-    HAL_Delay(250);
+    //HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_1);
+		//__HAL_TIM_SET_COMPARE(&Tim1Handle, TIM_CHANNEL_4, 500);
+    //HAL_Delay(250);
   }
 }
 
